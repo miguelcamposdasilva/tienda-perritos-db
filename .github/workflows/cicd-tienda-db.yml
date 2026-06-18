@@ -1,11 +1,11 @@
-name: CI/CD Tienda Perritos - DB
+name: CI/CD Tienda Perritos - Base de Datos
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  build-push-deploy-db:
+  build-deploy-db:
     runs-on: ubuntu-latest
 
     steps:
@@ -15,33 +15,31 @@ jobs:
     - name: Configurar credenciales AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{secrets.AWS_ACCESS_KEY_ID}}
-        aws-secret-access-key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
-        aws-session-token: ${{secrets.AWS_SESSION_TOKEN}}
-        aws-region: ${{secrets.AWS_REGION}}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: us-east-1
 
-    - name: Login en Amazon ECR (runner)
+    - name: Login en Amazon ECR
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build imagen DB y push a ECR
+    - name: Build y Push de la BD a ECR
       run: |
-        # Construcción directa en la raíz (se eliminó el "cd db")
         docker build -t tienda-db .
-        docker tag tienda-db:latest ${{secrets.ECR_REPO_URL_DB}}:latest
-        docker push ${{secrets.ECR_REPO_URL_DB}}:latest
+        docker tag tienda-db:latest ${{ secrets.ECR_REGISTRY }}/tienda-db:latest
+        docker push ${{ secrets.ECR_REGISTRY }}/tienda-db:latest
 
-    - name: Desplegar DB vía SSM
+    - name: Desplegar Base de Datos vía SSM
       run: |
         aws ssm send-command \
-          --instance-ids ${{secrets.EC2_DB_INSTANCE_ID}} \
+          --instance-ids ${{ secrets.EC2_DB_INSTANCE_ID }} \
           --document-name "AWS-RunShellScript" \
-          --comment "Actualizar tienda-db desde ECR" \
+          --comment "Actualizar contenedor de Base de Datos" \
           --parameters '{"commands":[
-            "set -e",
-            "aws ecr get-login-password --region '${{secrets.AWS_REGION}}' | docker login --username AWS --password-stdin ${{secrets.ECR_REGISTRY}}",
-            "docker pull ${{ secrets.ECR_REPO_URL_DB }}:latest",
+            "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}",
+            "docker pull ${{ secrets.ECR_REGISTRY }}/tienda-db:latest",
             "docker stop tienda-db || true",
             "docker rm tienda-db || true",
-            "docker run -d --name tienda-db -p 3306:3306 -e MYSQL_ROOT_PASSWORD=${{secrets.DB_ROOT_PASSWORD}} -e MYSQL_DATABASE=${{secrets.DB_DATABASE_NAME}} -e MYSQL_USER=${{secrets.DB_USER_NAME}} -e MYSQL_PASSWORD=${{secrets.DB_USER_PASSWORD}} -v dbdata:/var/lib/mysql ${{secrets.ECR_REPO_URL_DB}}:latest"
+            "docker run -d --name tienda-db -p 3306:3306 -e MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }} -e MYSQL_DATABASE=${{ secrets.DB_DATABASE_NAME}} -e MYSQL_USER=${{ secrets.DB_USER_NAME }} -e MYSQL_PASSWORD=${{ secrets.DB_USER_PASSWORD }} -v dbdata:/var/lib/mysql ${{ secrets.ECR_REGISTRY }}/tienda-db:latest"
           ]}' \
           --output text
