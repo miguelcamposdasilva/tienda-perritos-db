@@ -5,9 +5,8 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-deploy-db:
+  build-and-push:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout código
       uses: actions/checkout@v4
@@ -28,18 +27,8 @@ jobs:
         docker build -t tienda-db .
         docker tag tienda-db:latest ${{ secrets.ECR_REGISTRY }}/tienda-db:latest
         docker push ${{ secrets.ECR_REGISTRY }}/tienda-db:latest
-
-    - name: Desplegar Base de Datos vía SSM
+        
+    - name: Actualizar Kubernetes
       run: |
-        aws ssm send-command \
-          --instance-ids ${{ secrets.EC2_DB_INSTANCE_ID }} \
-          --document-name "AWS-RunShellScript" \
-          --comment "Actualizar contenedor de Base de Datos" \
-          --parameters '{"commands":[
-            "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}",
-            "docker pull ${{ secrets.ECR_REGISTRY }}/tienda-db:latest",
-            "docker stop tienda-db || true",
-            "docker rm tienda-db || true",
-            "docker run -d --name tienda-db -p 3306:3306 -e MYSQL_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }} -e MYSQL_DATABASE=${{ secrets.DB_DATABASE_NAME}} -e MYSQL_USER=${{ secrets.DB_USER_NAME }} -e MYSQL_PASSWORD=${{ secrets.DB_USER_PASSWORD }} -v dbdata:/var/lib/mysql ${{ secrets.ECR_REGISTRY }}/tienda-db:latest"
-          ]}' \
-          --output text
+        aws eks update-kubeconfig --name tienda-perritos-cluster-v2 --region us-east-1
+        kubectl apply -f mysql-deployment.yaml
